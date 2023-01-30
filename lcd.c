@@ -123,12 +123,18 @@ static error_t parse_opt(int key, char *arg, struct argp_state *state)
         set_leds(args, arg);
         break;
     case ARGP_KEY_ARG:
-        if (!add_line(args, arg)) // Too many arguments.
+        if (!add_line(args, arg))
+        {
+            fprintf(stderr, "Too many arguments.\n\n");
             argp_usage(state);
+        }
         break;
     case ARGP_KEY_END:
-        if (state->arg_num < 0) // Not enough arguments.
+        if (state->arg_num < 0)
+        {
+            fprintf(stderr, "Not enough arguments.\n\n");
             argp_usage(state);
+        }
         break;
     default:
         return ARGP_ERR_UNKNOWN;

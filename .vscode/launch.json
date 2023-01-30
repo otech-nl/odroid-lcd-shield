@@ -9,7 +9,7 @@
             "type": "cppdbg",
             "request": "launch",
             "program": "${workspaceFolder}/lcd",
-            "args": ["test1", "test2"],
+            "args": ["-r", "0", "test1"],
             "stopAtEntry": false,
             "cwd": "${fileDirname}",
             "environment": [],
