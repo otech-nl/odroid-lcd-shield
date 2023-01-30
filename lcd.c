@@ -1,15 +1,6 @@
 //------------------------------------------------------------------------------------------------------------
 //
-// ODROID-C 16x2 LCD / LED / Button Test Application.
-//
-// taken from https://wiki.odroid.com/accessory/display/16x2_lcd_io_shield/c/start
-// and adapted by steets@otech.nl
-//
-// Defined port number is wiringPi port number.
-//
-// Compile : gcc -g -o lcd lcd.c -lwiringPi -lwiringPiDev -lm -lpthread -lrt -lcrypt
-//
-// Run : sudo ./lcd
+// CLI to control LCD and LEDs of 16x2 LCD IO shield
 //
 //------------------------------------------------------------------------------------------------------------
 #include <argp.h>
