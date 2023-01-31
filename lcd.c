@@ -77,67 +77,129 @@ static char doc[] = "write message to LCD over GPIO";
 const char *argp_program_bug_address = "steets@otech.nl";
 static char args_doc[] = "[STR1 [STR2]]";
 static struct argp_option options[] = {
-    {"leds", 'l', "0000000", 0, "State of the leds"},
+    {"clear", 'c', 0, 0, "Clear the LCD and LEDs"},
+    {"leds", 'l', "FLAGS", 0, "Set the LEDs (0=off, 1=on, -=unchanged)"},
+    {"row", 'r', "NR", 0, "LCD row to set"},
     {0}};
 
 typedef struct
 {
-    uint8_t size;
-    unsigned char lines[LCD_ROW][LCD_COL];
-    unsigned char leds[MAX_LED_CNT];
+    uint8_t clear;
+    int row;
+    unsigned char *lines[LCD_ROW];
+    unsigned char *leds;
 } Arguments;
 
-void init_arguments(Arguments *args)
+void init(Arguments *args)
 {
-    args->size = 0;
-    memset(args->lines, ' ', LCD_ROW * LCD_COL);
-    memset(args->leds, '0', MAX_LED_CNT);
+    memset(args, 0, sizeof(Arguments));
+    args->row = -1;
+}
+
+uint8_t get_size(Arguments *args)
+{
+    for (uint8_t r = 0; r < LCD_ROW; r++)
+    {
+        if (args->lines[r] == NULL)
+        {
+            return r;
+        }
+    }
+    return LCD_ROW;
 }
 
 uint8_t add_line(Arguments *args, char *arg)
 {
-    if (args->size >= LCD_ROW)
+    uint8_t size = get_size(args);
+    if (size >= LCD_ROW)
     {
-        return 0;
+        fprintf(stderr, "Too many lines (max %s)\n", LCD_ROW - 1);
+        return 1;
     }
-    unsigned char *line = args->lines[args->size++];
-    memset(line, ' ', LCD_COL);
-    memcpy(line, arg, max(strlen(arg), LCD_ROW));
+    else if ((args->row >= 0) && (size > 0))
+    {
+        fprintf(stderr, "Multiple texts for row %d ('%s')\n", args->row, arg);
+        return 1;
+    }
+    args->lines[size] = arg;
 
-    return 1;
+    return 0;
 }
 
-void set_leds(Arguments *args, char *leds)
+uint8_t set_leds(Arguments *args, char *leds)
 {
-    memset(args->leds, '0', MAX_LED_CNT);
-    memcpy(args->leds, leds, max(strlen(leds), MAX_LED_CNT));
+    int len = strlen(leds);
+    if (len >= MAX_LED_CNT)
+    {
+        fprintf(stderr, "Too many LED values: %s = %d (max %d)\n", leds, len, MAX_LED_CNT);
+        return 1;
+    }
+    args->leds = leds;
+    return 0;
+}
+
+uint8_t set_row(Arguments *args, int row)
+{
+    if (row >= LCD_ROW)
+    {
+        fprintf(stderr, "Row index %d out of bounds (max %d)\n", row, LCD_ROW - 1);
+        return 1;
+    }
+    if (get_size(args) > 1)
+    {
+        fprintf(stderr, "Multiple texts for row %d\n", row);
+        return 1;
+    }
+    args->row = row;
+    return 0;
+}
+
+uint8_t set_clear(Arguments *args)
+{
+    args->clear = 1;
+    return 0;
 }
 
 static error_t parse_opt(int key, char *arg, struct argp_state *state)
 {
 
     Arguments *args = (Arguments *)state->input;
+    uint8_t result = 0, size;
+
     switch (key)
     {
+    case 'c':
+        result = set_clear(args);
+        break;
     case 'l':
-        set_leds(args, arg);
+        result = set_leds(args, arg);
+        break;
+    case 'r':
+        result = set_row(args, atoi(arg));
         break;
     case ARGP_KEY_ARG:
-        if (!add_line(args, arg))
-        {
-            fprintf(stderr, "Too many arguments.\n\n");
-            argp_usage(state);
-        }
+        result = add_line(args, arg);
         break;
     case ARGP_KEY_END:
-        if (state->arg_num < 0)
+        size = get_size(args);
+        if (!args->clear && (args->row < 0) && (size == 0))
         {
-            fprintf(stderr, "Not enough arguments.\n\n");
-            argp_usage(state);
+            fprintf(stderr, "Nothing to do. Please provide text and/or commands.\n\n");
+            result = 1;
+        }
+        if ((args->row >= 0) && (size == 0))
+        {
+            fprintf(stderr, "Please provide a text for row.\n\n");
+            result = 1;
         }
         break;
     default:
         return ARGP_ERR_UNKNOWN;
+    }
+
+    if (result)
+    {
+        argp_usage(state);
     }
 
     return 0;
@@ -151,15 +213,38 @@ static struct argp argp = {options, parse_opt, args_doc, doc};
 //
 //------------------------------------------------------------------------------------------------------------
 
+void lcd_put_row(uint8_t row, unsigned char *line)
+{
+    static unsigned char full_line[LCD_COL];
+    memset(full_line, ' ', LCD_COL);
+    memcpy(full_line, line, strlen(line));
+
+    lcdPosition(lcdHandle, 0, row);
+    for (uint8_t j = 0; j < LCD_COL; j++)
+    {
+        lcdPutchar(lcdHandle, full_line[j]);
+    }
+}
+
 static void lcd_update(Arguments *args)
 {
-    for (uint8_t i = 0; i < LCD_ROW; i++)
+    if (args->clear)
     {
-        lcdPosition(lcdHandle, 0, i);
+        lcdClear(lcdHandle);
+    }
 
-        unsigned char *line = args->lines[i];
-        for (uint8_t j = 0; j < LCD_COL; j++)
-            lcdPutchar(lcdHandle, line[j]);
+    if (args->row >= 0)
+    {
+        lcd_put_row(args->row, args->lines[0]);
+    }
+    else
+    {
+        uint8_t l = 0;
+        while (args->lines[l] != NULL)
+        {
+            lcd_put_row(l, args->lines[l]);
+            l++;
+        }
     }
 }
 
@@ -168,15 +253,19 @@ static void lcd_update(Arguments *args)
 // board data update
 //
 //------------------------------------------------------------------------------------------------------------
-void ledUpdate(Arguments *args)
+void led_update(Arguments *args)
 {
-    int value;
+    if (args->leds == NULL)
+        return;
 
-    //  LED Control
-    for (uint8_t i = 0; i < MAX_LED_CNT; i++)
+    int value;
+    for (uint8_t l = 0; l < strlen(args->leds); l++)
     {
-        value = args->leds[i] == '1' ? 1 : 0;
-        digitalWrite(ledPorts[i], value);
+        if (args->leds[l] != '-')
+        {
+            value = args->leds[l] == '1' ? 1 : 0;
+            digitalWrite(ledPorts[l], value);
+        }
     }
 }
 
@@ -227,7 +316,7 @@ int main(int argc, char *argv[])
     int timer = 0;
 
     Arguments args;
-    init_arguments(&args);
+    init(&args);
     argp_parse(&argp, argc, argv, 0, 0, &args);
 
     wiringPiSetup();
@@ -239,7 +328,7 @@ int main(int argc, char *argv[])
     }
 
     // board update
-    ledUpdate(&args);
+    led_update(&args);
     lcd_update(&args);
 
     return 0;
